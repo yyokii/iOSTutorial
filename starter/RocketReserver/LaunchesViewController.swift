@@ -20,6 +20,8 @@ class LaunchesViewController: UITableViewController {
     private var lastConnection: LaunchListQuery.Data.Launch?
     private var activeRequest: Cancellable?
     
+    private var activeSubscription: Cancellable?
+    
     enum ListSection: Int, CaseIterable {
         case launches
         case loading
@@ -27,12 +29,51 @@ class LaunchesViewController: UITableViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.startSubscription()
         self.loadMoreLaunchesIfTheyExist()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         clearsSelectionOnViewWillAppear = splitViewController!.isCollapsed
         super.viewWillAppear(animated)
+    }
+    
+    // MARK: - Subscriptions
+    
+    private func startSubscription() {
+        activeSubscription = Network.shared.apollo.subscribe(subscription: TripsBookedSubscription()) { result in
+            switch result {
+            case .failure(let error):
+                self.showAlert(title: "NetworkError",
+                               message: error.localizedDescription)
+            case .success(let graphQLResult):
+                if let errors = graphQLResult.errors {
+                    self.showAlertForErrors(errors)
+                } else if let tripsBooked = graphQLResult.data?.tripsBooked {
+                    self.handleTripsBooked(value: tripsBooked)
+                } else {
+                    // There was no data and there were no errors, do nothing.
+                }
+            }
+        }
+    }
+    
+    private func handleTripsBooked(value: Int) {
+        var message: String
+        switch value {
+        case 1:
+            message = "A new trip was booked! 🚀"
+        case -1:
+            message = "A trip was cancelled! 😭"
+        default:
+            self.showAlert(title: "Unexpected value",
+                           message: " Subscription returned unexpected value: \(value)")
+            return
+        }
+        
+        NotificationView.show(in: self.navigationController!.view,
+                              with: message,
+                              for: 4.0)
     }
     
     // MARK: - Segues
@@ -98,7 +139,7 @@ class LaunchesViewController: UITableViewController {
             detail.launchID = launch.id
             self.detailViewController = detail
         case .loading:
-          assertionFailure("Shouldn't have gotten here!")
+            assertionFailure("Shouldn't have gotten here!")
         }
     }
     
